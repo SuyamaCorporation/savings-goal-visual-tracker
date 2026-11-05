@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>貯蓄目標ビジュアルトラッカー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  *:focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; }
+  input[type=range] { accent-color: #f59e0b; }
+  .coin { display:inline-block; width:18px; height:18px; border-radius:50%; background:linear-gradient(135deg,#fcd34d,#f59e0b); border:1px solid #d97706; animation: coinDrop 0.3s ease; }
+  @keyframes coinDrop { from { transform: translateY(-8px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  .goal-card { cursor: grab; }
+  .goal-card.dragging { opacity: 0.5; cursor: grabbing; }
+  .goal-card.drag-over { border: 2px dashed #f59e0b; }
+</style>
+</head>
+<body class="bg-gradient-to-br from-amber-50 to-yellow-50 min-h-screen text-gray-800">
+<div class="max-w-5xl mx-auto px-4 py-8">
+  <header class="text-center mb-6">
+    <h1 class="text-2xl font-bold text-amber-600">貯蓄目標ビジュアルトラッカー</h1>
+    <p class="text-sm text-gray-500 mt-1">目標を設定して、コインを貯めながら夢を実現しよう</p>
+  </header>
+
+  <!-- ゴール追加ボタン -->
+  <div class="flex justify-center mb-6">
+    <button onclick="openModal()" id="add-goal-btn"
+      class="bg-amber-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-amber-600 transition shadow">
+      + 新しいゴールを追加
+    </button>
+  </div>
+
+  <!-- ゴールカード一覧 -->
+  <div id="goals-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" role="list"></div>
+  <p id="goals-empty" class="text-center text-gray-400 py-16 hidden">ゴールを追加して貯蓄を始めましょう！</p>
+
+  <!-- 達成グラフ -->
+  <div id="chart-section" class="mt-6 bg-white rounded-2xl shadow-sm p-5 hidden">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      <h2 class="font-semibold text-gray-700">残高推移グラフ</h2>
+      <select id="chart-select" onchange="drawChart()" class="ml-auto text-sm border border-gray-200 rounded-lg px-2 py-1 outline-none"></select>
+    </div>
+    <canvas id="chart" width="680" height="220" role="img" aria-label="貯蓄残高推移グラフ"></canvas>
+  </div>
+</div>
+
+<!-- ゴール入力モーダル -->
+<div id="modal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-label="ゴール設定">
+  <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+    <h2 class="font-bold text-gray-800 mb-4" id="modal-title">新しいゴール</h2>
+    <input type="hidden" id="edit-id">
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-name">ゴール名</label>
+        <input id="g-name" type="text" placeholder="例: 海外旅行 / 新しいPC / 緊急資金"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-target">目標金額（万円）</label>
+        <input id="g-target" type="number" min="1" placeholder="30"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-current">現在の貯金額（万円）</label>
+        <input id="g-current" type="number" min="0" placeholder="0"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-monthly">毎月積立額（万円）</label>
+        <input id="g-monthly" type="number" min="0.1" step="0.1" placeholder="3"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-rate">期待利率（年・%）</label>
+        <input id="g-rate" type="number" min="0" max="20" step="0.1" placeholder="0.5"
+          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 block mb-1" for="g-emoji">アイコン絵文字</label>
+        <input id="g-emoji" type="text" placeholder="✈️" maxlength="4"
+          class="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-amber-400">
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="saveGoal()" class="flex-1 bg-amber-500 text-white py-2.5 rounded-xl font-medium hover:bg-amber-600 transition text-sm">保存</button>
+      <button onclick="closeModal()" class="px-4 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-medium hover:bg-gray-200 transition text-sm">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'savings-tracker-v1';
+const COLORS = ['#f59e0b','#6366f1','#22c55e','#ec4899','#06b6d4','#f97316'];
+
+function htmlEscape(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+}
+function save(goals) { localStorage.setItem(STORAGE_KEY, JSON.stringify(goals)); }
+
+function calcMonthsToGoal(current, target, monthly, annualRate) {
+  if (monthly <= 0) return Infinity;
+  const r = annualRate / 12 / 100;
+  let bal = current;
+  if (target <= current) return 0;
+  for (let m = 1; m <= 600; m++) {
+    bal = bal * (1 + r) + monthly;
+    if (bal >= target) return m;
+  }
+  return Infinity;
+}
+
+function buildGrowthCurve(current, target, monthly, annualRate, months) {
+  const r = annualRate / 12 / 100;
+  let bal = current;
+  const pts = [bal];
+  for (let m = 1; m <= months; m++) {
+    bal = bal * (1 + r) + monthly;
+    pts.push(Math.min(bal, target * 1.05));
+  }
+  return pts;
+}
+
+function coinHTML(progress) {
+  const count = Math.round(progress / 10);
+  return Array(count).fill('<span class="coin"></span>').join('');
+}
+
+function openModal(id) {
+  const goals = load();
+  document.getElementById('edit-id').value = id || '';
+  document.getElementById('modal-title').textContent = id ? 'ゴールを編集' : '新しいゴール';
+  if (id) {
+    const g = goals.find(x => x.id === id);
+    if (g) {
+      document.getElementById('g-name').value = g.name;
+      document.getElementById('g-target').value = g.target;
+      document.getElementById('g-current').value = g.current;
+      document.getElementById('g-monthly').value = g.monthly;
+      document.getElementById('g-rate').value = g.rate;
+      document.getElementById('g-emoji').value = g.emoji || '';
+    }
+  } else {
+    ['g-name','g-target','g-current','g-monthly','g-rate','g-emoji'].forEach(id => document.getElementById(id).value = '');
+  }
+  document.getElementById('modal').classList.remove('hidden');
+  document.getElementById('g-name').focus();
+}
+
+function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+function saveGoal() {
+  const name = document.getElementById('g-name').value.trim();
+  const target = parseFloat(document.getElementById('g-target').value);
+  const current = parseFloat(document.getElementById('g-current').value) || 0;
+  const monthly = parseFloat(document.getElementById('g-monthly').value);
+  const rate = parseFloat(document.getElementById('g-rate').value) || 0;
+  const emoji = document.getElementById('g-emoji').value.trim() || '🎯';
+  const editId = document.getElementById('edit-id').value;
+
+  if (!name || isNaN(target) || isNaN(monthly)) { alert('ゴール名・目標金額・毎月積立額は必須です'); return; }
+
+  const goals = load();
+  if (goals.length >= 6 && !editId) { alert('ゴールは最大6件まで'); return; }
+
+  if (editId) {
+    const idx = goals.findIndex(g => g.id === editId);
+    if (idx >= 0) goals[idx] = { ...goals[idx], name, target, current, monthly, rate, emoji };
+  } else {
+    goals.push({ id: 'g' + Date.now(), name, target, current, monthly, rate, emoji, order: goals.length });
+  }
+  save(goals);
+  closeModal();
+  render();
+}
+
+function deleteGoal(id) {
+  if (!confirm('このゴールを削除しますか？')) return;
+  save(load().filter(g => g.id !== id));
+  render();
+}
+
+function render() {
+  const goals = load();
+  const container = document.getElementById('goals-container');
+  const empty = document.getElementById('goals-empty');
+  const addBtn = document.getElementById('add-goal-btn');
+  const chartSection = document.getElementById('chart-section');
+
+  addBtn.disabled = goals.length >= 6;
+  if (!goals.length) {
+    empty.classList.remove('hidden');
+    container.innerHTML = '';
+    chartSection.classList.add('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  chartSection.classList.remove('hidden');
+
+  container.innerHTML = goals.map((g, i) => {
+    const progress = Math.min(100, Math.round(g.current / g.target * 100));
+    const months = calcMonthsToGoal(g.current, g.target, g.monthly, g.rate);
+    const achieveDate = months === Infinity ? '達成困難' : (() => {
+      const d = new Date(); d.setMonth(d.getMonth() + months);
+      return d.getFullYear() + '年' + (d.getMonth()+1) + '月';
+    })();
+    const color = COLORS[i % COLORS.length];
+    const coins = Math.min(10, Math.round(progress / 10));
+
+    return `<div class="goal-card bg-white rounded-2xl shadow-sm p-5 relative" role="listitem"
+        draggable="true" data-id="${htmlEscape(g.id)}"
+        ondragstart="dragStart(event)" ondragover="dragOver(event)" ondrop="dropGoal(event)" ondragleave="dragLeave(event)">
+      <div class="flex items-start justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">${htmlEscape(g.emoji)}</span>
+          <div>
+            <div class="font-semibold text-gray-800 text-sm">${htmlEscape(g.name)}</div>
+            <div class="text-xs text-gray-400">${g.target.toLocaleString()}万円目標</div>
+          </div>
+        </div>
+        <div class="flex gap-1">
+          <button onclick="openModal('${htmlEscape(g.id)}')" class="text-xs text-gray-300 hover:text-amber-500 transition" aria-label="編集">✎</button>
+          <button onclick="deleteGoal('${htmlEscape(g.id)}')" class="text-xs text-gray-300 hover:text-red-400 transition" aria-label="削除">✕</button>
+        </div>
+      </div>
+
+      <!-- コイン貯金箱アニメーション -->
+      <div class="bg-amber-50 rounded-xl py-3 px-2 mb-3 min-h-[48px] flex flex-wrap gap-1 items-center justify-center">
+        ${Array(coins).fill('<span class="coin"></span>').join('')}
+        ${Array(10-coins).fill('<span class="inline-block w-4 h-4 rounded-full bg-gray-100 border border-gray-200"></span>').join('')}
+      </div>
+
+      <!-- 進捗バー -->
+      <div class="mb-2">
+        <div class="flex justify-between text-xs text-gray-500 mb-1">
+          <span>${g.current.toLocaleString()}万円 / ${g.target.toLocaleString()}万円</span>
+          <span class="font-bold" style="color:${color}">${progress}%</span>
+        </div>
+        <div class="bg-gray-100 rounded-full h-2.5" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
+          <div class="h-2.5 rounded-full transition-all duration-500" style="width:${progress}%; background:${color}"></div>
+        </div>
+      </div>
+
+      <div class="flex justify-between text-xs text-gray-500 mt-2">
+        <span>月 ${g.monthly}万円積立</span>
+        <span class="font-medium" style="color:${color}">達成: ${htmlEscape(achieveDate)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  updateChartSelect(goals);
+  drawChart();
+}
+
+// ドラッグソート
+let dragSrcId = null;
+function dragStart(e) {
+  dragSrcId = e.currentTarget.dataset.id;
+  e.currentTarget.classList.add('dragging');
+}
+function dragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function dropGoal(e) {
+  e.preventDefault();
+  const targetId = e.currentTarget.dataset.id;
+  e.currentTarget.classList.remove('drag-over');
+  if (!dragSrcId || dragSrcId === targetId) return;
+  const goals = load();
+  const srcIdx = goals.findIndex(g => g.id === dragSrcId);
+  const tgtIdx = goals.findIndex(g => g.id === targetId);
+  const [item] = goals.splice(srcIdx, 1);
+  goals.splice(tgtIdx, 0, item);
+  save(goals);
+  render();
+}
+document.addEventListener('dragend', () => {
+  document.querySelectorAll('.goal-card').forEach(c => c.classList.remove('dragging','drag-over'));
+});
+
+function updateChartSelect(goals) {
+  const sel = document.getElementById('chart-select');
+  sel.innerHTML = goals.map(g => `<option value="${htmlEscape(g.id)}">${htmlEscape(g.emoji)} ${htmlEscape(g.name)}</option>`).join('');
+}
+
+function drawChart() {
+  const goals = load();
+  const sel = document.getElementById('chart-select');
+  const id = sel.value;
+  const g = goals.find(x => x.id === id);
+  if (!g) return;
+
+  const months = Math.min(60, calcMonthsToGoal(g.current, g.target, g.monthly, g.rate) + 3);
+  const pts = buildGrowthCurve(g.current, g.target, g.monthly, g.rate, isFinite(months) ? months : 60);
+
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const pad = { top:20, right:20, bottom:35, left:55 };
+  ctx.clearRect(0,0,W,H);
+
+  const maxVal = Math.max(...pts, g.target);
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  const px = i => pad.left + i * plotW / (pts.length - 1);
+  const py = v => pad.top + (1 - v / maxVal) * plotH;
+
+  // 目標ライン
+  ctx.strokeStyle = '#fcd34d'; ctx.lineWidth = 1; ctx.setLineDash([6,4]);
+  const yt = py(g.target);
+  ctx.beginPath(); ctx.moveTo(pad.left, yt); ctx.lineTo(W - pad.right, yt); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#d97706'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('目標 ' + g.target + '万円', pad.left + 4, yt - 4);
+
+  // Grid
+  ctx.strokeStyle = '#f3f4f6'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + i * plotH / 4;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#9ca3af'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal * (1 - i/4)) + '万', pad.left - 4, y + 4);
+  }
+
+  // 折れ線（グラデーション塗り）
+  const grad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+  grad.addColorStop(0, 'rgba(245,158,11,0.3)');
+  grad.addColorStop(1, 'rgba(245,158,11,0.02)');
+  ctx.beginPath();
+  pts.forEach((v, i) => i === 0 ? ctx.moveTo(px(i), py(v)) : ctx.lineTo(px(i), py(v)));
+  ctx.lineTo(px(pts.length-1), H - pad.bottom);
+  ctx.lineTo(pad.left, H - pad.bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  ctx.beginPath(); ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+  pts.forEach((v, i) => i === 0 ? ctx.moveTo(px(i), py(v)) : ctx.lineTo(px(i), py(v)));
+  ctx.stroke();
+
+  // X軸ラベル
+  const stepLabel = Math.ceil(pts.length / 6);
+  ctx.fillStyle = '#9ca3af'; ctx.textAlign = 'center'; ctx.font = '10px sans-serif';
+  pts.forEach((_, i) => {
+    if (i % stepLabel === 0 || i === pts.length - 1) {
+      ctx.fillText(i + 'ヶ月後', px(i), H - 8);
+    }
+  });
+}
+
+document.getElementById('modal').addEventListener('click', e => { if (e.target === document.getElementById('modal')) closeModal(); });
+render();
+</script>
+</body>
+</html>
